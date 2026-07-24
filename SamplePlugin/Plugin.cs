@@ -1,12 +1,12 @@
-﻿using Dalamud.Game.Command;
+using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using System.IO;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
-using SamplePlugin.Windows;
+using PlaytimeTracker.Windows;
 
-namespace SamplePlugin;
+namespace PlaytimeTracker;
 
 public sealed class Plugin : IDalamudPlugin
 {
@@ -25,6 +25,8 @@ public sealed class Plugin : IDalamudPlugin
     public readonly WindowSystem WindowSystem = new("SamplePlugin");
     private ConfigWindow ConfigWindow { get; init; }
     private MainWindow MainWindow { get; init; }
+
+    public string Name => PluginInterface.Manifest.Name;
 
     public Plugin()
     {
