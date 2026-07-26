@@ -11,6 +11,10 @@ public class Configuration : IPluginConfiguration
     public bool IsConfigWindowMovable { get; set; } = true;
     public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
 
+    // Track the current playtime
+    public TimeSpan TodayPlaytime { get; set; } = TimeSpan.Zero; 
+    public DateTime LastTrackedDate { get; set; } = DateTime.Today;
+
     // The below exists just to make saving less cumbersome
     public void Save()
     {

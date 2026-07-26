@@ -1,10 +1,13 @@
 using Dalamud.Game.Command;
+using Dalamud.Game.Gui.Dtr;
+using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
-using System.IO;
-using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
+using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using PlaytimeTracker.Windows;
+using System;
+using System.IO;
 
 namespace PlaytimeTracker;
 
@@ -17,14 +20,21 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static IFramework Framework { get; private set; } = null!;
+    [PluginService] internal static IDtrBar DtrBar { get; private set; } = null!;
 
-    private const string CommandName = "/pmycommand";
+    private const string CommandName = "/ptimetrack";
 
     public Configuration Configuration { get; init; }
 
     public readonly WindowSystem WindowSystem = new("SamplePlugin");
     private ConfigWindow ConfigWindow { get; init; }
     private MainWindow MainWindow { get; init; }
+
+    private DateTime lastUpdateTime = DateTime.Now;
+    private DateTime lastSaveTime = DateTime.Now;
+    // Server info bar 
+    private IDtrBarEntry? playtimeEntry;
 
     public string Name => PluginInterface.Manifest.Name;
 
@@ -41,9 +51,13 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(ConfigWindow);
         WindowSystem.AddWindow(MainWindow);
 
+        playtimeEntry = DtrBar.Get("PlaytimeTracker");
+        playtimeEntry.Text = "00:00:00";
+        playtimeEntry.Shown = true;
+
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "A useful message to display in /xlhelp"
+            HelpMessage = "Opens playtime tracker window."
         });
 
         // Tell the UI system that we want our windows to be drawn through the window system
@@ -56,6 +70,8 @@ public sealed class Plugin : IDalamudPlugin
         // Adds another button doing the same but for the main ui of the plugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
 
+        Framework.Update += OnFrameworkUpdate;
+
         // Add a simple message to the log with level set to information
         // Use /xllog to open the log window in-game
         // Example Output: 00:57:54.959 | INF | [SamplePlugin] ===A cool log message from Sample Plugin===
@@ -64,6 +80,9 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        // Save before logging out/etc
+        Configuration.Save();
+
         // Unregister all actions to not leak anything during disposal of plugin
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
@@ -73,10 +92,40 @@ public sealed class Plugin : IDalamudPlugin
 
         ConfigWindow.Dispose();
         MainWindow.Dispose();
+        playtimeEntry?.Remove();
 
         CommandManager.RemoveHandler(CommandName);
     }
 
+    private void OnFrameworkUpdate(IFramework framework)
+    {
+        if(Configuration.LastTrackedDate.Date != DateTime.Today)
+        {
+            Configuration.TodayPlaytime = TimeSpan.Zero;
+            Configuration.LastTrackedDate = DateTime.Today;
+        }
+
+        var now = DateTime.Now;
+        var delta = now - lastUpdateTime;
+        lastUpdateTime = now;
+
+        if (PlayerState.IsLoaded)
+        {
+            Configuration.TodayPlaytime += delta;
+        }
+
+        if((now - lastSaveTime).TotalMinutes > 60)
+        {
+            Configuration.Save();
+            lastSaveTime = now;
+        }
+
+        var playtime = Configuration.TodayPlaytime;
+        if (playtimeEntry != null)
+        {
+            playtimeEntry.Text = $"{(int)playtime.TotalHours:D2}:{playtime.Minutes:D2}:{playtime.Seconds:D2}";
+        }
+    }
     private void OnCommand(string command, string args)
     {
         // In response to the slash command, toggle the display status of our main ui

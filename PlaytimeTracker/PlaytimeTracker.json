@@ -1,0 +1,12 @@
+{
+  "Author": "d2yap",
+  "Name": "Playtime Tracker",
+  "Punchline": "Track your daily playtime on FFXIV, locally!",
+  "Description": "Use /ptimetrack to open the main window.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "sample",
+    "plugin",
+    "goats"
+  ]
+}

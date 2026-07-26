@@ -18,7 +18,7 @@ public class MainWindow : Window, IDisposable
     // The user will see "My Amazing Window" as window title,
     // but for ImGui the ID is "My Amazing Window##With a hidden ID"
     public MainWindow(Plugin plugin, string goatImagePath)
-        : base("My Amazing Window##With a hidden ID", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
+        : base("Playtime Tracker##With a hidden ID", ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)
     {
         SizeConstraints = new WindowSizeConstraints
         {
@@ -51,22 +51,7 @@ public class MainWindow : Window, IDisposable
             // Check if this child is drawing
             if (child.Success)
             {
-                ImGui.Text("Have a goat:");
-                var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();
-                if (goatImage != null)
-                {
-                    using (ImRaii.PushIndent(55f))
-                    {
-                        ImGui.Image(goatImage.Handle, goatImage.Size);
-                    }
-                }
-                else
-                {
-                    ImGui.Text("Image not found.");
-                }
-
-                ImGuiHelpers.ScaledDummy(20.0f);
-
+                
                 // Example for other services that Dalamud provides.
                 // PlayerState provides a wrapper filled with information about the player character.
 
@@ -84,11 +69,17 @@ public class MainWindow : Window, IDisposable
                 }
                 
                 ImGui.AlignTextToFramePadding();
-                ImGui.Text($"Current job:");
-                
+
+                // Character Name
+                var characterName = playerState.CharacterName.ToString();
+                ImGui.Text($"{characterName}");
+
+                // Playtime
+                var playTime = plugin.Configuration.TodayPlaytime;
+                ImGui.Text($"Playtime Today: {playTime.Hours:D2}:{playTime.Minutes:D2}:{playTime.Seconds:D2}");
+
                 // Scaling hardcoded pixel values is important, as otherwise users with HUD scales above or below 100%
                 // won't be able to see everything.
-                ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
                 
                 // Get the icon id from a known offset + the class jobs id
                 var jobIconId = 62100 + playerState.ClassJob.RowId;
@@ -108,7 +99,7 @@ public class MainWindow : Window, IDisposable
                 var territoryId = Plugin.ClientState.TerritoryType;
                 if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territoryId, out var territoryRow))
                 {
-                    ImGui.Text($"Current location:");
+                    ImGui.Text($"Location:");
                     ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
                     ImGui.Text(territoryRow.PlaceName.Value.Name.ToString());
                 }
@@ -116,6 +107,21 @@ public class MainWindow : Window, IDisposable
                 {
                     ImGui.Text("Invalid territory.");
                 }
+
+                var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();
+                if (goatImage != null)
+                {
+                    using (ImRaii.PushIndent(55f))
+                    {
+                        ImGui.Image(goatImage.Handle, goatImage.Size);
+                    }
+                }
+                else
+                {
+                    ImGui.Text("Image not found.");
+                }
+
+                ImGuiHelpers.ScaledDummy(20.0f);
             }
         }
     }
