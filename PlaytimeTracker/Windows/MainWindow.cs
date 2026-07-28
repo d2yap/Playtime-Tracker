@@ -1,11 +1,12 @@
-using System;
-using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Lumina.Excel.Sheets;
+using System;
+using System.Linq;
+using System.Numerics;
 
 namespace PlaytimeTracker.Windows;
 
@@ -106,6 +107,24 @@ public class MainWindow : Window, IDisposable
                 else
                 {
                     ImGui.Text("Invalid territory.");
+                }
+
+                ImGuiHelpers.ScaledDummy(10.0f);
+                ImGui.Text("Playtime History:");
+
+                using (var historyChild = ImRaii.Child("PlaytimeHistoryChild", new Vector2(0, 150), true))
+                {
+                    if (historyChild.Success)
+                    {
+                        foreach (var entry in plugin.PlaytimeHistory.OrderByDescending(e => e.Key))
+                        {
+                            var date = entry.Key.ToString("yyyy-MM-dd");
+                            var time = entry.Value;
+                            ImGui.Text($"{date}:");
+                            ImGui.SameLine(150 * ImGuiHelpers.GlobalScale);
+                            ImGui.Text($"{(int)time.TotalHours:D2}:{time.Minutes:D2}:{time.Seconds:D2}");
+                        }
+                    }
                 }
 
                 var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();

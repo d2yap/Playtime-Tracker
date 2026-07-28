@@ -7,6 +7,7 @@ using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using PlaytimeTracker.Windows;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace PlaytimeTracker;
@@ -23,7 +24,9 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IDtrBar DtrBar { get; private set; } = null!;
 
-    private const string CommandName = "/ptimetrack";
+    private const string CommandName = "/ptimetrack"; 
+
+
 
     public Configuration Configuration { get; init; }
 
@@ -35,6 +38,9 @@ public sealed class Plugin : IDalamudPlugin
     private DateTime lastSaveTime = DateTime.Now;
     // Server info bar 
     private IDtrBarEntry? playtimeEntry;
+    // SQLite database
+    private PlaytimeDatabase playtimeDb = null!;
+    public Dictionary<DateTime, TimeSpan> PlaytimeHistory { get; private set; } = new();
 
     public string Name => PluginInterface.Manifest.Name;
 
@@ -44,7 +50,8 @@ public sealed class Plugin : IDalamudPlugin
 
         // You might normally want to embed resources and load them from the manifest stream
         var goatImagePath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName!, "goat.png");
-
+        playtimeDb = new PlaytimeDatabase(Path.Combine(PluginInterface.ConfigDirectory.FullName, "playtime.db"));
+        RefreshPlaytimeHistory();
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this, goatImagePath);
 
@@ -82,6 +89,9 @@ public sealed class Plugin : IDalamudPlugin
     {
         // Save before logging out/etc
         Configuration.Save();
+        playtimeDb.SaveTodayPlaytime(Configuration.LastTrackedDate.Date, Configuration.TodayPlaytime);
+
+        Framework.Update -= OnFrameworkUpdate;
 
         // Unregister all actions to not leak anything during disposal of plugin
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
@@ -96,13 +106,21 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.RemoveHandler(CommandName);
     }
+    
+
+    private void RefreshPlaytimeHistory()
+    {
+        PlaytimeHistory = playtimeDb.GetAllPlaytime();
+    }
 
     private void OnFrameworkUpdate(IFramework framework)
     {
         if(Configuration.LastTrackedDate.Date != DateTime.Today)
         {
+            playtimeDb.SaveTodayPlaytime(Configuration.LastTrackedDate.Date, Configuration.TodayPlaytime);
             Configuration.TodayPlaytime = TimeSpan.Zero;
             Configuration.LastTrackedDate = DateTime.Today;
+            RefreshPlaytimeHistory();
         }
 
         var now = DateTime.Now;
@@ -114,8 +132,9 @@ public sealed class Plugin : IDalamudPlugin
             Configuration.TodayPlaytime += delta;
         }
 
-        if((now - lastSaveTime).TotalMinutes > 60)
+        if((now - lastSaveTime).TotalSeconds > 60)
         {
+            playtimeDb.SaveTodayPlaytime(DateTime.Today, Configuration.TodayPlaytime);
             Configuration.Save();
             lastSaveTime = now;
         }
