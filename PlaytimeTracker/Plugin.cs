@@ -23,6 +23,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IDtrBar DtrBar { get; private set; } = null!;
+    // chat
+    [PluginService] public static IChatGui Chat { get; private set; } = null!;
 
     private const string CommandName = "/ptimetrack"; 
 
@@ -150,7 +152,14 @@ public sealed class Plugin : IDalamudPlugin
         // In response to the slash command, toggle the display status of our main ui
         MainWindow.Toggle();
     }
-    
+
+    public void RefreshPlaytimeHistoryInDatabase()
+    {
+        playtimeDb.SaveTodayPlaytime(DateTime.Today, Configuration.TodayPlaytime);
+        PlaytimeHistory = playtimeDb.GetAllPlaytime();
+        Configuration.Save();
+    }
+
     public void ToggleConfigUi() => ConfigWindow.Toggle();
     public void ToggleMainUi() => MainWindow.Toggle();
 }

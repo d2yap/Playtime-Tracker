@@ -3,6 +3,8 @@ using Dalamud.Interface.Textures;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using Dalamud.IoC;
+using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using System;
 using System.Linq;
@@ -14,6 +16,7 @@ public class MainWindow : Window, IDisposable
 {
     private readonly string goatImagePath;
     private readonly Plugin plugin;
+    
 
     // We give this window a hidden ID using ##.
     // The user will see "My Amazing Window" as window title,
@@ -29,6 +32,14 @@ public class MainWindow : Window, IDisposable
 
         this.goatImagePath = goatImagePath;
         this.plugin = plugin;
+    }
+
+    // On window open https://dalamud.dev/api/Dalamud.Interface.Windowing/Classes/Window/
+    public override void OnOpen()
+    {
+        plugin.RefreshPlaytimeHistoryInDatabase();
+
+        Plugin.Chat.Print("Playtime Tracker was opened.");
     }
 
     public void Dispose() { }
