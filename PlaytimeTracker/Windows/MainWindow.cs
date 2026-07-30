@@ -46,7 +46,7 @@ public class MainWindow : Window, IDisposable
 
     public override void Draw()
     {
-        ImGui.Text($"The random config bool is {plugin.Configuration.SomePropertyToBeSavedAndWithADefault}");
+        ImGui.Text($"Server Info Bar: {plugin.Configuration.ServerInfoBarSetting}");
 
         if (ImGui.Button("Show Settings"))
         {
@@ -136,6 +136,28 @@ public class MainWindow : Window, IDisposable
                             ImGui.Text($"{(int)time.TotalHours:D2}:{time.Minutes:D2}:{time.Seconds:D2}");
                         }
                     }
+                }
+
+                // Should toggle between different playtime displays -- maybe show in pages?? (pagination)
+                var maxHours = plugin.PlaytimeHistory.Values.Max(x => x.TotalHours);
+
+                foreach (var entry in plugin.PlaytimeHistory.OrderByDescending(e => e.Key))
+                {
+                    var date = entry.Key.ToString("ddd MM/dd");
+                    var time = entry.Value;
+
+                    float hours = (float)time.TotalHours;
+
+                    ImGui.Text(date);
+
+                    ImGui.SameLine(100 * ImGuiHelpers.GlobalScale);
+
+                    // Progress bar
+                    ImGui.ProgressBar(
+                        maxHours > 0 ? hours / (float)maxHours : 0,
+                        new Vector2(180 * ImGuiHelpers.GlobalScale, 18 * ImGuiHelpers.GlobalScale),
+                        $"{hours:F1}h"
+                    );
                 }
 
                 var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();

@@ -142,9 +142,16 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         var playtime = Configuration.TodayPlaytime;
-        if (playtimeEntry != null)
+        var serverInfoSetting = Configuration.ServerInfoBarSetting;
+        if (playtimeEntry != null &&serverInfoSetting)
         {
+            playtimeEntry.Shown = true;
             playtimeEntry.Text = $"{(int)playtime.TotalHours:D2}:{playtime.Minutes:D2}:{playtime.Seconds:D2}";
+        }
+        else
+        {
+            playtimeEntry.Text = "";
+            playtimeEntry.Shown = false;
         }
     }
     private void OnCommand(string command, string args)
