@@ -60,6 +60,7 @@ public class PlaytimeDatabase
         return result != null ? TimeSpan.FromSeconds((double)result) : TimeSpan.Zero;
     }
 
+
     public Dictionary<DateTime, TimeSpan> GetAllPlaytime()
     {
         var results = new Dictionary<DateTime, TimeSpan>();

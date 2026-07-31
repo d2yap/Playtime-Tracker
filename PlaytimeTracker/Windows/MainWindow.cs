@@ -44,83 +44,76 @@ public class MainWindow : Window, IDisposable
 
     public void Dispose() { }
 
-    public override void Draw()
+    private void TabOverview()
     {
-        ImGui.Text($"Server Info Bar: {plugin.Configuration.ServerInfoBarSetting}");
+        // Example for other services that Dalamud provides.
+        // PlayerState provides a wrapper filled with information about the player character.
 
-        if (ImGui.Button("Show Settings"))
+        var playerState = Plugin.PlayerState;
+        if (!playerState.IsLoaded)
         {
-            plugin.ToggleConfigUi();
+            ImGui.Text("Our local player is currently not logged in.");
+            return;
         }
 
-        ImGui.Spacing();
+        if (!playerState.ClassJob.IsValid)
+        {
+            ImGui.Text("Our current job is currently not valid.");
+            return;
+        }
 
-        // Normally a BeginChild() would have to be followed by an unconditional EndChild(),
-        // ImRaii takes care of this after the scope ends.
-        // This works for all ImGui functions that require specific handling, examples are BeginTable() or Indent().
+        ImGui.AlignTextToFramePadding();
+
+
+        // Scaling hardcoded pixel values is important, as otherwise users with HUD scales above or below 100%
+        // won't be able to see everything.
+
+        // Get the icon id from a known offset + the class jobs id
+        // Character Name
+        var characterName = playerState.CharacterName.ToString();
+        ImGui.Text($"{characterName}"); 
+        ImGui.SameLine();
+        var jobIconId = 62100 + playerState.ClassJob.RowId;
+        var iconTexture = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(jobIconId)).GetWrapOrEmpty();
+        ImGui.Image(iconTexture.Handle, new Vector2(28, 28) * ImGuiHelpers.GlobalScale);
+        ImGui.SameLine();
+
+        // If you want to see the Macro representation of this SeString use `.ToMacroString()`
+        // More info about SeStrings: https://dalamud.dev/plugin-development/sestring/
+        ImGui.Text(playerState.ClassJob.Value.Abbreviation.ToString());
+
+        ImGui.SameLine();
+        ImGui.Text($" [Level {playerState.Level}]");
+        // Playtime
+        var playTime = plugin.Configuration.TodayPlaytime;
+        ImGui.Text($"Playtime Today: {playTime.Hours:D2}:{playTime.Minutes:D2}:{playTime.Seconds:D2}");
+        var sumPlaytime = plugin.PlaytimeHistory.Values.Aggregate(TimeSpan.Zero, (sum, time) => sum + time);
+        ImGui.Text($"Total recorded playtime: {(int)sumPlaytime.TotalDays}:{sumPlaytime.Hours:D2}:{sumPlaytime.Minutes:D2}:{sumPlaytime.Seconds:D2}");
+        ImGui.Text($"Total recorded playtime (hours): {sumPlaytime.TotalHours:F2}h");
+
+
+        // Example for querying Lumina, getting the name of our current area.
+        var territoryId = Plugin.ClientState.TerritoryType;
+        if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territoryId, out var territoryRow))
+        {
+            ImGui.Text($"Location:");
+            ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
+            ImGui.Text(territoryRow.PlaceName.Value.Name.ToString());
+        }
+        else
+        {
+            ImGui.Text("Invalid territory.");
+        }
+    }
+
+    private void TabPlaytime()
+    {
         using (var child = ImRaii.Child("SomeChildWithAScrollbar", Vector2.Zero, true))
         {
             // Check if this child is drawing
             if (child.Success)
             {
-                
-                // Example for other services that Dalamud provides.
-                // PlayerState provides a wrapper filled with information about the player character.
 
-                var playerState = Plugin.PlayerState;
-                if (!playerState.IsLoaded)
-                {
-                    ImGui.Text("Our local player is currently not logged in.");
-                    return;
-                }
-                
-                if (!playerState.ClassJob.IsValid)
-                {
-                    ImGui.Text("Our current job is currently not valid.");
-                    return;
-                }
-                
-                ImGui.AlignTextToFramePadding();
-
-                // Character Name
-                var characterName = playerState.CharacterName.ToString();
-                ImGui.Text($"{characterName}");
-
-                // Playtime
-                var playTime = plugin.Configuration.TodayPlaytime;
-                ImGui.Text($"Playtime Today: {playTime.Hours:D2}:{playTime.Minutes:D2}:{playTime.Seconds:D2}");
-
-                // Scaling hardcoded pixel values is important, as otherwise users with HUD scales above or below 100%
-                // won't be able to see everything.
-                
-                // Get the icon id from a known offset + the class jobs id
-                var jobIconId = 62100 + playerState.ClassJob.RowId;
-                var iconTexture = Plugin.TextureProvider.GetFromGameIcon(new GameIconLookup(jobIconId)).GetWrapOrEmpty();
-                ImGui.Image(iconTexture.Handle, new Vector2(28, 28) * ImGuiHelpers.GlobalScale);
-                
-                ImGui.SameLine();
-                
-                // If you want to see the Macro representation of this SeString use `.ToMacroString()`
-                // More info about SeStrings: https://dalamud.dev/plugin-development/sestring/
-                ImGui.Text(playerState.ClassJob.Value.Abbreviation.ToString());
-                
-                ImGui.SameLine();
-                ImGui.Text($" [Level {playerState.Level}]");
-                
-                // Example for querying Lumina, getting the name of our current area.
-                var territoryId = Plugin.ClientState.TerritoryType;
-                if (Plugin.DataManager.GetExcelSheet<TerritoryType>().TryGetRow(territoryId, out var territoryRow))
-                {
-                    ImGui.Text($"Location:");
-                    ImGui.SameLine(120 * ImGuiHelpers.GlobalScale);
-                    ImGui.Text(territoryRow.PlaceName.Value.Name.ToString());
-                }
-                else
-                {
-                    ImGui.Text("Invalid territory.");
-                }
-
-                ImGuiHelpers.ScaledDummy(10.0f);
                 ImGui.Text("Playtime History:");
 
                 using (var historyChild = ImRaii.Child("PlaytimeHistoryChild", new Vector2(0, 150), true))
@@ -159,7 +152,33 @@ public class MainWindow : Window, IDisposable
                         $"{hours:F1}h"
                     );
                 }
+            }
+        }
+    }
 
+    public override void Draw()
+    {
+        ImGui.Spacing();
+
+        if (ImGui.BeginTabBar("SessionTabs"))
+        {
+            if (ImGui.BeginTabItem("Overview"))
+
+            {
+                TabOverview();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Stats"))
+
+            {
+                TabPlaytime();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Goat"))
+
+            {
                 var goatImage = Plugin.TextureProvider.GetFromFile(goatImagePath).GetWrapOrDefault();
                 if (goatImage != null)
                 {
@@ -174,7 +193,36 @@ public class MainWindow : Window, IDisposable
                 }
 
                 ImGuiHelpers.ScaledDummy(20.0f);
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Settings"))
+
+            {
+                ImGui.Text($"Server Info Bar: {plugin.Configuration.ServerInfoBarSetting}");
+
+                if (ImGui.Button("Show Settings"))
+                {
+                    plugin.ToggleConfigUi();
+                }
+                ImGui.EndTabItem();
             }
         }
+
+        // Normally a BeginChild() would have to be followed by an unconditional EndChild(),
+        // ImRaii takes care of this after the scope ends.
+        // This works for all ImGui functions that require specific handling, examples are BeginTable() or Indent().
+        /*
+        using (var child = ImRaii.Child("SomeChildWithAScrollbar", Vector2.Zero, true))
+        {
+            // Check if this child is drawing
+            if (child.Success)
+            {
+
+
+                ImGuiHelpers.ScaledDummy(10.0f);
+
+                
+            }
+        }*/
     }
 }
