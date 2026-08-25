@@ -1,3 +1,4 @@
+
 using Dalamud.Game.Command;
 using Dalamud.Game.Gui.Dtr;
 using Dalamud.Interface.Windowing;
@@ -23,37 +24,59 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IDtrBar DtrBar { get; private set; } = null!;
-    // chat
     [PluginService] public static IChatGui Chat { get; private set; } = null!;
 
-    private const string CommandName = "/ptimetrack"; 
-
-
+    private const string CommandName = "/ptimetrack";
 
     public Configuration Configuration { get; init; }
 
-    public readonly WindowSystem WindowSystem = new("SamplePlugin");
+    public readonly WindowSystem WindowSystem = new("PlaytimeTracker");
+
     private ConfigWindow ConfigWindow { get; init; }
     private MainWindow MainWindow { get; init; }
 
     private DateTime lastUpdateTime = DateTime.Now;
     private DateTime lastSaveTime = DateTime.Now;
-    // Server info bar 
+
+    // Server info bar
     private IDtrBarEntry? playtimeEntry;
+
     // SQLite database
     private PlaytimeDatabase playtimeDb = null!;
+
+    // Total playtime history
     public Dictionary<DateTime, TimeSpan> PlaytimeHistory { get; private set; } = new();
+
+    // Current day's playtime for each job.
+    // Key = job abbreviation
+    // Value = job name + accumulated playtime
+    private Dictionary<string, (string Name, TimeSpan Playtime)> TodayJobPlaytime { get; set; } = new();
 
     public string Name => PluginInterface.Manifest.Name;
 
     public Plugin()
     {
-        Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        Configuration = PluginInterface.GetPluginConfig() as Configuration
+                       ?? new Configuration();
 
-        // You might normally want to embed resources and load them from the manifest stream
-        var goatImagePath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName!, "goat.png");
-        playtimeDb = new PlaytimeDatabase(Path.Combine(PluginInterface.ConfigDirectory.FullName, "playtime.db"));
+        var goatImagePath = Path.Combine(
+            PluginInterface.AssemblyLocation.Directory?.FullName!,
+            "goat.png");
+
+        playtimeDb = new PlaytimeDatabase(
+            Path.Combine(
+                PluginInterface.ConfigDirectory.FullName,
+                "playtime.db"));
+
+        // If the saved date is not today, reset tracking
+        if (Configuration.LastTrackedDate.Date != DateTime.Today)
+        {
+            Configuration.LastTrackedDate = DateTime.Today;
+        }
+
         RefreshPlaytimeHistory();
+        RefreshTodayJobPlaytime();
+
         ConfigWindow = new ConfigWindow(this);
         MainWindow = new MainWindow(this, goatImagePath);
 
@@ -64,109 +87,213 @@ public sealed class Plugin : IDalamudPlugin
         playtimeEntry.Text = "00:00:00";
         playtimeEntry.Shown = true;
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
-        {
-            HelpMessage = "Opens playtime tracker window."
-        });
+        CommandManager.AddHandler(
+            CommandName,
+            new CommandInfo(OnCommand)
+            {
+                HelpMessage = "Opens playtime tracker window."
+            });
 
-        // Tell the UI system that we want our windows to be drawn through the window system
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
-
-        // This adds a button to the plugin installer entry of this plugin which allows
-        // toggling the display status of the configuration ui
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
-
-        // Adds another button doing the same but for the main ui of the plugin
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
 
         Framework.Update += OnFrameworkUpdate;
 
-        // Add a simple message to the log with level set to information
-        // Use /xllog to open the log window in-game
-        // Example Output: 00:57:54.959 | INF | [SamplePlugin] ===A cool log message from Sample Plugin===
-        Log.Information($"===A cool log message from {PluginInterface.Manifest.Name}===");
+        Log.Information(
+            $"===A cool message from {PluginInterface.Manifest.Name}===");
+
     }
 
     public void Dispose()
     {
-        // Save before logging out/etc
+        // Save the current state before the plugin unloads.
+        SaveJobPlaytime(Configuration.LastTrackedDate.Date);
+
         Configuration.Save();
-        playtimeDb.SaveTodayPlaytime(Configuration.LastTrackedDate.Date, Configuration.TodayPlaytime);
 
         Framework.Update -= OnFrameworkUpdate;
 
-        // Unregister all actions to not leak anything during disposal of plugin
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
-        
+
         WindowSystem.RemoveAllWindows();
 
         ConfigWindow.Dispose();
         MainWindow.Dispose();
+
         playtimeEntry?.Remove();
 
         CommandManager.RemoveHandler(CommandName);
     }
-    
 
     private void RefreshPlaytimeHistory()
     {
         PlaytimeHistory = playtimeDb.GetAllPlaytime();
+
+        // Also refresh today's playtime from the database
+        // This ensures we don't restore deleted data or carry over stale cached values
+        Configuration.TodayPlaytime = playtimeDb.GetPlaytimeForDate(DateTime.Today);
+    }
+
+    public Dictionary<string, TimeSpan> GetPlaytimeByJob(DateTime date)
+    {
+        return playtimeDb.GetPlaytimeByJob(date);
+    }
+
+    private void RefreshTodayJobPlaytime()
+    {
+        TodayJobPlaytime.Clear();
+
+        var jobs = playtimeDb.GetPlaytimeByJobWithNames(DateTime.Today);
+
+        foreach (var job in jobs)
+        {
+            TodayJobPlaytime[job.Key] =
+                (
+                    job.Value.Name,
+                    job.Value.Playtime
+                );
+        }
     }
 
     private void OnFrameworkUpdate(IFramework framework)
     {
-        if(Configuration.LastTrackedDate.Date != DateTime.Today)
-        {
-            playtimeDb.SaveTodayPlaytime(Configuration.LastTrackedDate.Date, Configuration.TodayPlaytime);
-            Configuration.TodayPlaytime = TimeSpan.Zero;
-            Configuration.LastTrackedDate = DateTime.Today;
-            RefreshPlaytimeHistory();
-        }
-
         var now = DateTime.Now;
+
         var delta = now - lastUpdateTime;
         lastUpdateTime = now;
 
-        if (PlayerState.IsLoaded)
+        // When new day happens
+
+        if (Configuration.LastTrackedDate.Date != DateTime.Today)
         {
-            Configuration.TodayPlaytime += delta;
+            // Save yesterday's job totals before resetting.
+            SaveJobPlaytime(Configuration.LastTrackedDate.Date);
+
+            // Reset today's in-memory job data.
+            TodayJobPlaytime.Clear();
+
+            Configuration.TodayPlaytime = TimeSpan.Zero;
+            Configuration.LastTrackedDate = DateTime.Today;
+
+            RefreshPlaytimeHistory();
+            RefreshTodayJobPlaytime();
         }
 
-        if((now - lastSaveTime).TotalSeconds > 60)
+        // Playtime tracking
+
+        if (PlayerState.IsLoaded)
         {
-            playtimeDb.SaveTodayPlaytime(DateTime.Today, Configuration.TodayPlaytime);
+            // Overall playtime
+            Configuration.TodayPlaytime += delta;
+
+            // Current job
+            var job = PlayerState.ClassJob;
+
+            if (job.RowId != 0)
+            {
+                var abbreviation =
+                    job.Value.Abbreviation.ToString();
+
+                var name =
+                    job.Value.Name.ToString();
+
+                if (TodayJobPlaytime.TryGetValue(
+                        abbreviation,
+                        out var existing))
+                {
+                    TodayJobPlaytime[abbreviation] =
+                        (
+                            existing.Name,
+                            existing.Playtime + delta
+                        );
+                }
+                else
+                {
+                    TodayJobPlaytime[abbreviation] =
+                        (
+                            name,
+                            delta
+                        );
+                }
+            }
+        }
+
+        // save every 60 seconds
+
+        if ((now - lastSaveTime).TotalSeconds > 60)
+        {
+            SaveJobPlaytime(Configuration.LastTrackedDate.Date);
+
             Configuration.Save();
+
+            RefreshPlaytimeHistory();
+
             lastSaveTime = now;
         }
 
+        // DTR bar update
+
+        UpdateDtrBar();
+    }
+
+    private void SaveJobPlaytime(DateTime date)
+    {
+        foreach (var job in TodayJobPlaytime)
+        {
+            playtimeDb.SaveJobPlaytime(
+                date.Date,
+                job.Value.Name,
+                job.Key,
+                job.Value.Playtime);
+        }
+    }
+
+    private void UpdateDtrBar()
+    {
         var playtime = Configuration.TodayPlaytime;
-        var serverInfoSetting = Configuration.ServerInfoBarSetting;
-        if (playtimeEntry != null &&serverInfoSetting)
+        var serverInfoSetting =
+            Configuration.ServerInfoBarSetting;
+
+        if (playtimeEntry != null && serverInfoSetting)
         {
             playtimeEntry.Shown = true;
-            playtimeEntry.Text = $"{(int)playtime.TotalHours:D2}:{playtime.Minutes:D2}:{playtime.Seconds:D2}";
+
+            playtimeEntry.Text =
+                $"{(int)playtime.TotalHours:D2}:" +
+                $"{playtime.Minutes:D2}:" +
+                $"{playtime.Seconds:D2}";
         }
-        else
+        else if (playtimeEntry != null)
         {
             playtimeEntry.Text = "";
             playtimeEntry.Shown = false;
         }
     }
+
     private void OnCommand(string command, string args)
     {
-        // In response to the slash command, toggle the display status of our main ui
         MainWindow.Toggle();
     }
 
     public void RefreshPlaytimeHistoryInDatabase()
     {
-        playtimeDb.SaveTodayPlaytime(DateTime.Today, Configuration.TodayPlaytime);
-        PlaytimeHistory = playtimeDb.GetAllPlaytime();
+        SaveJobPlaytime(Configuration.LastTrackedDate.Date);
+
+        PlaytimeHistory =
+            playtimeDb.GetAllPlaytime();
+
         Configuration.Save();
     }
 
-    public void ToggleConfigUi() => ConfigWindow.Toggle();
-    public void ToggleMainUi() => MainWindow.Toggle();
+    // windows
+
+    public void ToggleConfigUi() =>
+        ConfigWindow.Toggle();
+
+    public void ToggleMainUi() =>
+        MainWindow.Toggle();
+
 }

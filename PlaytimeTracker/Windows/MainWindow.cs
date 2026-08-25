@@ -14,9 +14,22 @@ namespace PlaytimeTracker.Windows;
 
 public class MainWindow : Window, IDisposable
 {
+
     private readonly string goatImagePath;
     private readonly Plugin plugin;
-    
+
+    // month page
+    private int statsMonthOffset = 0;
+    private int statsPage = 0;
+
+
+    // jobs page
+    private int jobsMonthOffset = 0;
+    private int jobsPage = 0;
+
+    // pagination 
+
+    private const int DaysPerPage = 10;
 
     // We give this window a hidden ID using ##.
     // The user will see "My Amazing Window" as window title,
@@ -86,7 +99,7 @@ public class MainWindow : Window, IDisposable
         ImGui.Text($" [Level {playerState.Level}]");
         // Playtime
         var playTime = plugin.Configuration.TodayPlaytime;
-        ImGui.Text($"Playtime Today: {playTime.Hours:D2}:{playTime.Minutes:D2}:{playTime.Seconds:D2}");
+        ImGui.Text($"Playtime Today: {(int)playTime.TotalHours:D2}:{playTime.Minutes:D2}:{playTime.Seconds:D2}");
         var sumPlaytime = plugin.PlaytimeHistory.Values.Aggregate(TimeSpan.Zero, (sum, time) => sum + time);
         ImGui.Text($"Total recorded playtime: {(int)sumPlaytime.TotalDays}:{sumPlaytime.Hours:D2}:{sumPlaytime.Minutes:D2}:{sumPlaytime.Seconds:D2}");
         ImGui.Text($"Total recorded playtime (hours): {sumPlaytime.TotalHours:F2}h");
@@ -108,51 +121,331 @@ public class MainWindow : Window, IDisposable
 
     private void TabPlaytime()
     {
-        using (var child = ImRaii.Child("SomeChildWithAScrollbar", Vector2.Zero, true))
+        using var child = ImRaii.Child(
+            "PlaytimeStatsChild",
+            Vector2.Zero,
+            true);
+
+        if (!child.Success)
+            return;
+
+        var today = DateTime.Today;
+
+        // Selected month
+
+        var selectedMonth = new DateTime(
+            today.Year,
+            today.Month,
+            1).AddMonths(statsMonthOffset);
+
+        var nextMonth = selectedMonth.AddMonths(1);
+
+        var monthEntries = plugin.PlaytimeHistory
+            .Where(e => e.Key >= selectedMonth && e.Key < nextMonth)
+            .OrderBy(e => e.Key)
+            .ToList();
+
+        // Month navigation
+
+        if (ImGui.Button("<"))
         {
-            // Check if this child is drawing
-            if (child.Success)
+            statsMonthOffset--;
+            statsPage = 0;
+        }
+
+        ImGui.SameLine();
+
+        ImGui.Text(
+            $"  {selectedMonth:MMMM yyyy}  ");
+
+        ImGui.SameLine();
+
+        bool isCurrentMonth =
+            selectedMonth.Year == today.Year &&
+            selectedMonth.Month == today.Month;
+
+        if (!isCurrentMonth)
+        {
+            if (ImGui.Button(">"))
             {
-
-                ImGui.Text("Playtime History:");
-
-                using (var historyChild = ImRaii.Child("PlaytimeHistoryChild", new Vector2(0, 150), true))
-                {
-                    if (historyChild.Success)
-                    {
-                        foreach (var entry in plugin.PlaytimeHistory.OrderByDescending(e => e.Key))
-                        {
-                            var date = entry.Key.ToString("yyyy-MM-dd");
-                            var time = entry.Value;
-                            ImGui.Text($"{date}:");
-                            ImGui.SameLine(150 * ImGuiHelpers.GlobalScale);
-                            ImGui.Text($"{(int)time.TotalHours:D2}:{time.Minutes:D2}:{time.Seconds:D2}");
-                        }
-                    }
-                }
-
-                // Should toggle between different playtime displays -- maybe show in pages?? (pagination)
-                var maxHours = plugin.PlaytimeHistory.Values.Max(x => x.TotalHours);
-
-                foreach (var entry in plugin.PlaytimeHistory.OrderByDescending(e => e.Key))
-                {
-                    var date = entry.Key.ToString("ddd MM/dd");
-                    var time = entry.Value;
-
-                    float hours = (float)time.TotalHours;
-
-                    ImGui.Text(date);
-
-                    ImGui.SameLine(100 * ImGuiHelpers.GlobalScale);
-
-                    // Progress bar
-                    ImGui.ProgressBar(
-                        maxHours > 0 ? hours / (float)maxHours : 0,
-                        new Vector2(180 * ImGuiHelpers.GlobalScale, 18 * ImGuiHelpers.GlobalScale),
-                        $"{hours:F1}h"
-                    );
-                }
+                statsMonthOffset++;
+                statsPage = 0;
             }
+        }
+
+        ImGui.Separator();
+
+        // Month statistics
+
+        var totalMonthPlaytime =
+            monthEntries
+                .Select(e => e.Value)
+                .Aggregate(
+                    TimeSpan.Zero,
+                    (sum, time) => sum + time);
+
+        var activeDays = monthEntries.Count;
+
+        var averagePlaytime = activeDays > 0
+            ? TimeSpan.FromTicks(
+                totalMonthPlaytime.Ticks / activeDays)
+            : TimeSpan.Zero;
+
+        ImGui.Text("Total");
+
+        ImGui.SameLine(100 * ImGuiHelpers.GlobalScale);
+
+        ImGui.Text(
+            $"{(int)totalMonthPlaytime.TotalHours:D2}:" +
+            $"{totalMonthPlaytime.Minutes:D2}:" +
+            $"{totalMonthPlaytime.Seconds:D2}");
+
+        ImGui.Text("Average");
+
+        ImGui.SameLine(100 * ImGuiHelpers.GlobalScale);
+
+        ImGui.Text(
+            $"{(int)averagePlaytime.TotalHours:D2}:" +
+            $"{averagePlaytime.Minutes:D2}:" +
+            $"{averagePlaytime.Seconds:D2}");
+
+        ImGui.Text($"Active Days: {activeDays}");
+
+        ImGui.Separator();
+
+        if (monthEntries.Count == 0)
+        {
+            ImGui.Text("No playtime recorded this month.");
+            return;
+        }
+        
+        // Pagination
+
+        int totalPages = Math.Max(
+            1,
+            (int)Math.Ceiling(
+                monthEntries.Count / (double)DaysPerPage));
+
+        statsPage = Math.Clamp(
+            statsPage,
+            0,
+            totalPages - 1);
+
+        if (ImGui.Button("Previous") && statsPage > 0)
+            statsPage--;
+
+        ImGui.SameLine();
+
+        ImGui.Text(
+            $"Page {statsPage + 1} / {totalPages}");
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Next") &&
+            statsPage < totalPages - 1)
+        {
+            statsPage++;
+        }
+
+        ImGui.Separator();
+        
+        // Daily Playtime 
+
+        var maxHours = monthEntries
+            .Max(x => x.Value.TotalHours);
+
+        var pageEntries = monthEntries
+            .Skip(statsPage * DaysPerPage)
+            .Take(DaysPerPage);
+
+        foreach (var entry in pageEntries)
+        {
+            var date = entry.Key;
+            var time = entry.Value;
+
+            float hours = (float)time.TotalHours;
+
+            ImGui.Text(date.ToString("ddd MM/dd"));
+
+            ImGui.SameLine(
+                100 * ImGuiHelpers.GlobalScale);
+
+            ImGui.ProgressBar(
+                maxHours > 0
+                    ? hours / (float)maxHours
+                    : 0,
+                new Vector2(
+                    180 * ImGuiHelpers.GlobalScale,
+                    18 * ImGuiHelpers.GlobalScale),
+                $"{hours:F1}h");
+        }
+    }
+
+    private void TabJobPlaytime()
+    {
+        using var child = ImRaii.Child(
+            "JobPlaytimeChild",
+            Vector2.Zero,
+            true);
+
+        if (!child.Success)
+            return;
+
+        var today = DateTime.Today;
+
+        // Selected month for job playtime
+
+        var selectedMonth = new DateTime(
+            today.Year,
+            today.Month,
+            1).AddMonths(jobsMonthOffset);
+
+        var nextMonth = selectedMonth.AddMonths(1);
+
+        var monthEntries = plugin.PlaytimeHistory
+            .Where(e => e.Key >= selectedMonth && e.Key < nextMonth)
+            .OrderBy(e => e.Key)
+            .ToList();
+
+
+        // Month navigation
+
+        if (ImGui.Button("<"))
+        {
+            jobsMonthOffset--;
+            jobsPage = 0;
+        }
+
+        ImGui.SameLine();
+
+        ImGui.Text($"  {selectedMonth:MMMM yyyy}  ");
+
+        ImGui.SameLine();
+
+        bool isCurrentMonth =
+            selectedMonth.Year == today.Year &&
+            selectedMonth.Month == today.Month;
+
+        if (!isCurrentMonth)
+        {
+            if (ImGui.Button(">"))
+            {
+                jobsMonthOffset++;
+                jobsPage = 0;
+            }
+        }
+
+        ImGui.Separator();
+
+        if (monthEntries.Count == 0)
+        {
+            ImGui.Text("No playtime recorded this month.");
+            return;
+        }
+        
+        // By month statistics
+
+        var totalMonthPlaytime =
+            monthEntries
+                .Select(e => e.Value)
+                .Aggregate(
+                    TimeSpan.Zero,
+                    (sum, time) => sum + time);
+
+        var activeDays = monthEntries.Count;
+
+        var averagePlaytime = activeDays > 0
+            ? TimeSpan.FromTicks(
+                totalMonthPlaytime.Ticks / activeDays)
+            : TimeSpan.Zero;
+
+        ImGui.Text(
+            $"Total: {(int)totalMonthPlaytime.TotalHours:D2}:" +
+            $"{totalMonthPlaytime.Minutes:D2}:" +
+            $"{totalMonthPlaytime.Seconds:D2}");
+
+        ImGui.SameLine(230 * ImGuiHelpers.GlobalScale);
+
+        ImGui.Text($"Average: {(int)averagePlaytime.TotalHours:D2}:" +
+            $"{averagePlaytime.Minutes:D2}:" +
+            $"{averagePlaytime.Seconds:D2}");
+
+        ImGui.Separator();
+        
+        // Pagination
+
+        int totalPages = Math.Max(
+            1,
+            (int)Math.Ceiling(
+                monthEntries.Count / (double)DaysPerPage));
+
+        jobsPage = Math.Clamp(
+            jobsPage,
+            0,
+            totalPages - 1);
+
+        if (ImGui.Button("Previous") && jobsPage > 0)
+            jobsPage--;
+
+        ImGui.SameLine();
+
+        ImGui.Text(
+            $"Page {jobsPage + 1} / {totalPages}");
+
+        ImGui.SameLine();
+
+        if (ImGui.Button("Next") &&
+            jobsPage < totalPages - 1)
+        {
+            jobsPage++;
+        }
+
+        ImGui.Separator();
+           
+        // Daily Job Playtime
+
+        var pageEntries = monthEntries
+            .Skip(jobsPage * DaysPerPage)
+            .Take(DaysPerPage);
+
+        foreach (var entry in pageEntries)
+        {
+            var date = entry.Key;
+            var totalTime = entry.Value;
+
+            ImGui.Text(
+                date.ToString("ddd, MMM dd"));
+
+            ImGui.SameLine(
+                150 * ImGuiHelpers.GlobalScale);
+
+            ImGui.Text(
+                $"Total: {(int)totalTime.TotalHours:D2}:" +
+                $"{totalTime.Minutes:D2}:" +
+                $"{totalTime.Seconds:D2}");
+
+            var jobs = plugin.GetPlaytimeByJob(date);
+
+            foreach (var job in jobs)
+            {
+                ImGui.Indent(
+                    20 * ImGuiHelpers.GlobalScale);
+
+                ImGui.Text(job.Key);
+
+                ImGui.SameLine(
+                    80 * ImGuiHelpers.GlobalScale);
+
+                ImGui.Text(
+                    $"{(int)job.Value.TotalHours:D2}:" +
+                    $"{job.Value.Minutes:D2}:" +
+                    $"{job.Value.Seconds:D2}");
+
+                ImGui.Unindent(
+                    20 * ImGuiHelpers.GlobalScale);
+            }
+
+            ImGui.Separator();
         }
     }
 
@@ -173,6 +466,12 @@ public class MainWindow : Window, IDisposable
 
             {
                 TabPlaytime();
+                ImGui.EndTabItem();
+            }
+
+            if (ImGui.BeginTabItem("Jobs"))
+            {
+                TabJobPlaytime();
                 ImGui.EndTabItem();
             }
 
@@ -207,6 +506,8 @@ public class MainWindow : Window, IDisposable
                 ImGui.EndTabItem();
             }
         }
+
+        // Reference code 
 
         // Normally a BeginChild() would have to be followed by an unconditional EndChild(),
         // ImRaii takes care of this after the scope ends.

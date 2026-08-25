@@ -49,11 +49,14 @@ public class ConfigWindow : Window, IDisposable
             configuration.Save();
         }
 
+        // Unused code, here for reference
+        /*
         var movable = configuration.IsConfigWindowMovable;
         if (ImGui.Checkbox("Movable Config Window", ref movable))
         {
             configuration.IsConfigWindowMovable = movable;
             configuration.Save();
         }
+        */
     }
 }
