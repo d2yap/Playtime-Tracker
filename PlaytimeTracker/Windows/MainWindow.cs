@@ -142,7 +142,7 @@ public class MainWindow : Window, IDisposable
 
         var monthEntries = plugin.PlaytimeHistory
             .Where(e => e.Key >= selectedMonth && e.Key < nextMonth)
-            .OrderBy(e => e.Key)
+            .OrderByDescending(e => e.Key)
             .ToList();
 
         // Month navigation
@@ -304,7 +304,7 @@ public class MainWindow : Window, IDisposable
 
         var monthEntries = plugin.PlaytimeHistory
             .Where(e => e.Key >= selectedMonth && e.Key < nextMonth)
-            .OrderBy(e => e.Key)
+            .OrderByDescending(e => e.Key)
             .ToList();
 
 
